@@ -152,11 +152,12 @@ func (endpoint *VethEndpoint) HotDetach(ctx context.Context, h Hypervisor, netNs
 	defer span.End()
 
 	if err := doNetNS(netNsPath, func(_ ns.NetNS) error {
+		networkLogger().Info("In\"if err := doNetNS(netNsPath, func(_ ns.NetNS) error\", next: xDisconnectVMNetwork ", ctx, endpoint)
 		return xDisconnectVMNetwork(ctx, endpoint)
 	}); err != nil {
 		networkLogger().WithError(err).Warn("Error un-bridging virtual ep")
 	}
-
+	networkLogger().Info("func (endpoint *VethEndpoint) HotDetach: next: HotplugRemoveDevice:", ctx, endpoint, NetDev)
 	if _, err := h.HotplugRemoveDevice(ctx, endpoint, NetDev); err != nil {
 		networkLogger().WithError(err).Error("Error detach virtual ep")
 		return err

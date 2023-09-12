@@ -12,8 +12,10 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/containernetworking/plugins/pkg/ns"
@@ -127,7 +129,22 @@ func (n *LinuxNetwork) addSingleEndpoint(ctx context.Context, s *Sandbox, netInf
 	} else {
 		var socketPath string
 		idx := len(n.eps)
-
+		lastIdx := -1
+		if len(n.eps) > 0 {
+			lastEndpoint := n.eps[len(n.eps)-1]
+			re := regexp.MustCompile("[0-9]+")
+			matchStr := re.FindString(lastEndpoint.Name())
+			n, err := strconv.ParseInt(matchStr, 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			lastIdx = int(n)
+		}
+		networkLogger().Info("*** lastIdx = ", lastIdx)
+		networkLogger().Info("*** idx = ", idx)
+		if idx <= lastIdx {
+			idx = lastIdx + 1
+		}
 		// Check if this is a dummy interface which has a vhost-user socket associated with it
 		socketPath, err = vhostUserSocketPath(netInfo)
 		if err != nil {
@@ -163,6 +180,9 @@ func (n *LinuxNetwork) addSingleEndpoint(ctx context.Context, s *Sandbox, netInf
 			}
 		} else if netInfo.Iface.Type == "veth" {
 			networkLogger().Info("veth interface found")
+			networkLogger().Info("*** idx =", idx)
+			networkLogger().Info("*** netInfo.Iface.Name =", netInfo.Iface.Name)
+			networkLogger().Info("*** n.interworkingModel =", n.interworkingModel)
 			endpoint, err = createVethNetworkEndpoint(idx, netInfo.Iface.Name, n.interworkingModel)
 		} else if netInfo.Iface.Type == "ipvlan" {
 			networkLogger().Info("ipvlan interface found")
@@ -211,13 +231,18 @@ func (n *LinuxNetwork) addSingleEndpoint(ctx context.Context, s *Sandbox, netInf
 	return endpoint, nil
 }
 
-func (n *LinuxNetwork) removeSingleEndpoint(ctx context.Context, s *Sandbox, idx int, hotplug bool) error {
+func (n *LinuxNetwork) removeSingleEndpoint(ctx context.Context, s *Sandbox, endpoint Endpoint, hotplug bool) error {
+	var idx int = len(n.eps)
+	for i, val := range n.eps {
+		if val.HardwareAddr() == endpoint.HardwareAddr() {
+			idx = i
+			break
+		}
+	}
 	if idx > len(n.eps)-1 {
 		return fmt.Errorf("Endpoint index overflow")
 	}
-
-	endpoint := n.eps[idx]
-
+	networkLogger().Info("*** endpoint =  ", endpoint)
 	if endpoint.GetRxRateLimiter() {
 		networkLogger().WithField("endpoint-type", endpoint.Type()).Info("Deleting rx rate limiter")
 		// Deleting rx rate limiter should enter the network namespace.
@@ -354,6 +379,7 @@ func (n *LinuxNetwork) AddEndpoints(ctx context.Context, s *Sandbox, endpointsIn
 		}
 	} else {
 		for _, ep := range endpointsInfo {
+			networkLogger().Info("*** ep : %v", ep)
 			if err := doNetNS(n.netNSPath, func(_ ns.NetNS) error {
 				if _, err := n.addSingleEndpoint(ctx, s, ep, hotplug); err != nil {
 					n.eps = nil
@@ -380,19 +406,35 @@ func (n *LinuxNetwork) RemoveEndpoints(ctx context.Context, s *Sandbox, endpoint
 	defer span.End()
 
 	eps := n.eps
+	networkLogger().Info("*** eps1 = ", eps)
 	if endpoints != nil {
 		eps = endpoints
 	}
-
-	for idx, ep := range eps {
+	networkLogger().Info("*** eps2 = ", eps)
+	for _, ep := range eps {
 		if endpoints != nil {
 			new_ep, _ := findEndpoint(ep, n.eps)
 			if new_ep == nil {
 				continue
 			}
 		}
+		networkLogger().Info("In RemoveEndpoints, endpoint = ", endpoints)
+		if err := n.removeSingleEndpoint(ctx, s, ep, hotplug); err != nil {
+			return err
+		}
+	}
 
-		if err := n.removeSingleEndpoint(ctx, s, idx, hotplug); err != nil {
+	networkLogger().Debug("Endpoints removed")
+
+	for _, ep := range eps {
+		if endpoints != nil {
+			new_ep, _ := findEndpoint(ep, n.eps)
+			if new_ep == nil {
+				continue
+			}
+		}
+		networkLogger().Info("In RemoveEndpoints, endpoint = ", endpoints)
+		if err := n.removeSingleEndpoint(ctx, s, ep, hotplug); err != nil {
 			return err
 		}
 	}
@@ -425,6 +467,9 @@ func (n *LinuxNetwork) SetEndpoints(endpoints []Endpoint) {
 }
 
 func createLink(netHandle *netlink.Handle, name string, expectedLink netlink.Link, queues int) (netlink.Link, []*os.File, error) {
+	networkLogger().Info("*** In createLink name = ", name)
+	networkLogger().Info("*** In createLink expectedLink = ", expectedLink)
+	networkLogger().Info("*** In createLink queues = ", queues)
 	var newLink netlink.Link
 	var fds []*os.File
 
@@ -538,6 +583,7 @@ func getLinkByName(netHandle *netlink.Handle, name string, expectedLink netlink.
 
 // The endpoint type should dictate how the connection needs to happen.
 func xConnectVMNetwork(ctx context.Context, endpoint Endpoint, h Hypervisor) error {
+	networkLogger().Info(" *** In xConnectVMNetwork endpoint = ", endpoint)
 	var err error
 
 	span, ctx := networkTrace(ctx, "xConnectVMNetwork", endpoint)
@@ -556,7 +602,7 @@ func xConnectVMNetwork(ctx context.Context, endpoint Endpoint, h Hypervisor) err
 	if netPair.NetInterworkingModel == NetXConnectDefaultModel {
 		netPair.NetInterworkingModel = DefaultNetInterworkingModel
 	}
-
+	networkLogger().Info("*** netPair.NetInterworkingModel = ", netPair.NetInterworkingModel)
 	switch netPair.NetInterworkingModel {
 	case NetXConnectMacVtapModel:
 		networkLogger().Info("connect macvtap to VM network")
@@ -583,6 +629,7 @@ func xDisconnectVMNetwork(ctx context.Context, endpoint Endpoint) error {
 		netPair.NetInterworkingModel = DefaultNetInterworkingModel
 	}
 
+	networkLogger().Info("*** netPair.NetInterworkingModel = ", netPair.NetInterworkingModel, endpoint)
 	switch netPair.NetInterworkingModel {
 	case NetXConnectMacVtapModel:
 		err = untapNetworkPair(ctx, endpoint)
@@ -783,6 +830,7 @@ func setupTCFiltering(ctx context.Context, endpoint Endpoint, queues int, disabl
 	netPair := endpoint.NetworkPair()
 
 	tapLink, fds, err := createLink(netHandle, netPair.TAPIface.Name, &netlink.Tuntap{}, queues)
+	networkLogger().Info("*** tapLink = ", tapLink)
 	if err != nil {
 		return fmt.Errorf("Could not create TAP interface: %s", err)
 	}
@@ -822,12 +870,13 @@ func setupTCFiltering(ctx context.Context, endpoint Endpoint, queues int, disabl
 	}
 
 	tapAttrs := tapLink.Attrs()
-
+	networkLogger().Info("*** tapAttrs.Index = ", tapAttrs.Index)
 	if err := addQdiscIngress(tapAttrs.Index); err != nil {
 		return err
 	}
 
 	if err := addQdiscIngress(attrs.Index); err != nil {
+		networkLogger().Info("*** attrs.Index = ", attrs.Index)
 		return err
 	}
 
@@ -849,6 +898,7 @@ func setupTCFiltering(ctx context.Context, endpoint Endpoint, queues int, disabl
 //
 // This is equivalent to calling `tc qdisc add dev eth0 ingress`
 func addQdiscIngress(index int) error {
+
 	qdisc := &netlink.Ingress{
 		QdiscAttrs: netlink.QdiscAttrs{
 			LinkIndex: index,
@@ -923,6 +973,7 @@ func removeRedirectTCFilter(link netlink.Link) error {
 
 // removeQdiscIngress removes the ingress qdisc previously created on "link".
 func removeQdiscIngress(link netlink.Link) error {
+	networkLogger().Info("*** In removeQdiscIngress: ", link)
 	if link == nil {
 		return nil
 	}

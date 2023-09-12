@@ -23,6 +23,7 @@ import (
 	"github.com/containerd/containerd/mount"
 	taskAPI "github.com/containerd/containerd/runtime/v2/task"
 	"github.com/containerd/typeurl"
+	"github.com/kata-containers/kata-containers/src/runtime/pkg/netmon"
 	"github.com/kata-containers/kata-containers/src/runtime/pkg/utils"
 	"github.com/kata-containers/kata-containers/src/runtime/virtcontainers"
 	"github.com/kata-containers/kata-containers/src/runtime/virtcontainers/pkg/annotations"
@@ -190,7 +191,8 @@ func create(ctx context.Context, s *service, r *taskAPI.CreateTaskRequest) (*con
 		if defaultStartManagementServerFunc != nil {
 			defaultStartManagementServerFunc(s, ctx, ociSpec)
 		}
-
+		//start network monitor
+		go netmon.StartNetMon(s.ctx, s.sandbox)
 	case vc.PodContainer:
 		span, ctx := katatrace.Trace(s.ctx, shimLog, "create", shimTracingTags)
 		defer span.End()

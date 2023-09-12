@@ -96,7 +96,7 @@ func (endpoint *TuntapEndpoint) Detach(ctx context.Context, netNsCreated bool, n
 	span, _ := tuntapTrace(ctx, "Detach", endpoint)
 	defer span.End()
 
-	networkLogger().WithField("endpoint-type", TuntapEndpointType).Info("Detaching endpoint")
+	networkLogger().WithField("endpoint-type", TuntapEndpointType).Info("tuntap_endpoint.go Detaching endpoint")
 	return doNetNS(netNsPath, func(_ ns.NetNS) error {
 		return unTuntapNetwork(endpoint.TuntapInterface.TAPIface.Name)
 	})

@@ -85,7 +85,7 @@ func (endpoint *TapEndpoint) Detach(ctx context.Context, netNsCreated bool, netN
 	span, _ := tapTrace(ctx, "Detach", endpoint)
 	defer span.End()
 
-	networkLogger().WithField("endpoint-type", TapEndpointType).Info("Detaching endpoint")
+	networkLogger().WithField("endpoint-type", TapEndpointType).Info("tap_endpoint Detaching endpoint")
 	return doNetNS(netNsPath, func(_ ns.NetNS) error {
 		return unTapNetwork(endpoint.TapInterface.TAPIface.Name)
 	})

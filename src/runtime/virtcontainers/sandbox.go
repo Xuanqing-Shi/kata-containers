@@ -1051,7 +1051,7 @@ func (s *Sandbox) AddInterface(ctx context.Context, inf *pbTypes.Interface) (*pb
 	if err != nil {
 		return nil, err
 	}
-
+	s.Logger().Info("*** netInfo: %v", netInfo)
 	endpoints, err := s.network.AddEndpoints(ctx, s, []NetworkInfo{netInfo}, true)
 	if err != nil {
 		return nil, err
@@ -1062,6 +1062,7 @@ func (s *Sandbox) AddInterface(ctx context.Context, inf *pbTypes.Interface) (*pb
 			eps := s.network.Endpoints()
 			// The newly added endpoint is last.
 			added_ep := eps[len(eps)-1]
+			s.Logger().Info("*** added_ep : ", added_ep)
 			if errDetach := s.network.RemoveEndpoints(ctx, s, []Endpoint{added_ep}, true); err != nil {
 				s.Logger().WithField("endpoint-type", added_ep.Type()).WithError(errDetach).Error("rollback hot attaching endpoint failed")
 			}
@@ -1087,6 +1088,8 @@ func (s *Sandbox) AddInterface(ctx context.Context, inf *pbTypes.Interface) (*pb
 func (s *Sandbox) RemoveInterface(ctx context.Context, inf *pbTypes.Interface) (*pbTypes.Interface, error) {
 	for _, endpoint := range s.network.Endpoints() {
 		if endpoint.HardwareAddr() == inf.HwAddr {
+			s.Logger().Info("inf.HwAddr = ", inf.HwAddr)
+			s.Logger().Info("endpoint = ", endpoint)
 			s.Logger().WithField("endpoint-type", endpoint.Type()).Info("Hot detaching endpoint")
 			if err := s.network.RemoveEndpoints(ctx, s, []Endpoint{endpoint}, true); err != nil {
 				return inf, err
