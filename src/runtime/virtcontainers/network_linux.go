@@ -239,8 +239,8 @@ func (n *LinuxNetwork) removeSingleEndpoint(ctx context.Context, s *Sandbox, end
 			break
 		}
 	}
-	if idx > len(n.eps)-1 {
-		return fmt.Errorf("Endpoint index overflow")
+	if idx == len(n.eps) {
+		return fmt.Errorf("Endpoint not found")
 	}
 	networkLogger().Info("*** endpoint =  ", endpoint)
 	if endpoint.GetRxRateLimiter() {
